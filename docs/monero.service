@@ -1,0 +1,92 @@
+Description=Monero Full Node
+After=network.target
+
+[Service]
+User=monero
+Group=monero
+WorkingDirectory=/home/monero
+#StateDirectory=/home/monero/.bitmonero
+#LogsDirectory=/var/log/monero
+
+StandardOutput=null
+StandardError=null
+
+
+# Make sure the config directory is readable by the service user
+PermissionsStartOnly=true
+#ExecStartPre=/bin/chgrp -R monero /etc/monero
+
+# Clearnet config
+#
+#Type=forking
+#PIDFile=/run/monero/monerod.pid
+#ExecStart=/usr/local/bin/monerod --config-file /etc/monero/monero.conf \
+#    --detach --pidfile /run/monero/monero.pid
+
+# Tor config
+#
+# We have to use simple, not forking, because we cannot pass --detach
+# because stderr/stdout is not available when detached, but torsocks
+# attempts to write to it, and fails with 'invalid argument', causing
+# monerod to fail.
+Type=simple
+Environment=DNS_PUBLIC=tcp
+# The following is needed only when accessing wallet from a different
+# host in the LAN, VPN, etc, the RPC must bind to 0.0.0.0, but
+# by default torsocks only allows binding to localhost.
+#Environment=TORSOCKS_ALLOW_INBOUND=1
+
+#Use when "anonymous-inbound" is disabled in monero.conf (Wrap torsocks around monero):
+ExecStart=/usr/bin/torsocks -i /usr/local/bin/monerod --config-file /etc/monero/monero.conf --non-interactive --pidfile /run/monero/monero.pid
+#Use when anonymous-inbound=someonion... is enabled in monero.conf:
+#ExecStart=/usr/local/bin/monerod --config-file /etc/monero/monero.conf \
+#    --non-interactive --pidfile /run/monero/monero.pid
+
+Restart=always
+
+
+# Directory creation and permissions
+####################################
+
+# /run/monero
+RuntimeDirectory=monero
+RuntimeDirectoryMode=0750
+
+# /etc/monero
+ConfigurationDirectory=monero
+ConfigurationDirectoryMode=0750
+
+# /var/lib/monero
+#StateDirectory=/home/monero/.bitmonero
+#StateDirectoryMode=0750
+
+# Hardening measures
+####################
+
+# Provide a private /tmp and /var/tmp.
+PrivateTmp=true
+
+# Mount /usr, /boot/ and /etc read-only for the process.
+ProtectSystem=full
+
+# Deny access to /home, /root and /run/user
+#ProtectHome=true
+
+# Disallow the process and all of its children to gain
+# new privileges through execve().
+NoNewPrivileges=true
+
+# Use a new /dev namespace only populated with API pseudo devices
+# such as /dev/null, /dev/zero and /dev/random.
+PrivateDevices=true
+
+# Deny the creation of writable and executable memory mappings.
+#MemoryDenyWriteExecute=true
+#^Causes monerod to mprotect failed hang.  They use W and also X "but not WX" so ... something something disable this or it won't work.
+
+
+
+
+[Install]
+WantedBy=multi-user.target
+

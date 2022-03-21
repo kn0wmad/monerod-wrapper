@@ -1,29 +1,28 @@
-ASSETS := $(shell yq e '.assets.[].src' manifest.yaml)
-ASSET_PATHS := $(addprefix assets/,$(ASSETS))
-VERSION := $(shell toml get hello-world/Cargo.toml package.version)
-HELLO_WORLD_SRC := $(shell find ./hello-world/src) hello-world/Cargo.toml hello-world/Cargo.lock
-S9PK_PATH=$(shell find . -name hello-world.s9pk -print)
+VERSION := $(shell yq e ".version" manifest.yaml)
+VERSION_STRIPPED := $(shell echo $(VERSION) | sed -E 's/([0-9]+\.[0-9]+\.[0-9]+).*/\1/g')
+MANAGER_SRC := $(shell find ./manager -name '*.rs') manager/Cargo.toml manager/Cargo.lock
 
 .DELETE_ON_ERROR:
 
 all: verify
 
-verify: hello-world.s9pk $(S9PK_PATH)
-		embassy-sdk verify $(S9PK_PATH)
+clean:
+		rm monerod.s9pk
+		rm image.tar
 
-# install: hello-world.s9pk
-# 		embassy-cli package install hello-world
+verify: monerod.s9pk
+		embassy-sdk verify s9pk monerod.s9pk
 
-# embassy-sdk pack errors come from here, check your manifest, config, instructions, and icon
-hello-world.s9pk: manifest.yaml assets/compat/config_spec.yaml config_rules.yaml image.tar docs/instructions.md $(ASSET_PATHS)
+monerod.s9pk: manifest.yaml assets/compat/config_spec.yaml assets/compat/config_rules.yaml image.tar docs/instructions.md
 		embassy-sdk pack
+# 		embassy-sdk pack errors come from here, check your manifest, config, instructions, and icon
 
-image.tar: Dockerfile docker_entrypoint.sh hello-world/target/aarch64-unknown-linux-musl/release/hello-world
-		DOCKER_CLI_EXPERIMENTAL=enabled docker buildx build --tag start9/hello-world --platform=linux/arm64 -o type=docker,dest=image.tar .
+install: monerod.s9pk
+		embassy-cli package install monerod.s9pk
 
-hello-world/target/aarch64-unknown-linux-musl/release/hello-world: $(HELLO_WORLD_SRC)
-		docker run --rm -it -v ~/.cargo/registry:/root/.cargo/registry -v "$(shell pwd)"/hello-world:/home/rust/src start9/rust-musl-cross:aarch64-musl cargo +beta build --release
-		docker run --rm -it -v ~/.cargo/registry:/root/.cargo/registry -v "$(shell pwd)"/hello-world:/home/rust/src start9/rust-musl-cross:aarch64-musl musl-strip target/aarch64-unknown-linux-musl/release/hello-world
+image.tar: Dockerfile docker_entrypoint.sh manager/target/aarch64-unknown-linux-musl/release/monerod-manager manifest.yaml
+		DOCKER_CLI_EXPERIMENTAL=enabled docker buildx build --tag start9/monerod/main:$(VERSION) --build-arg MONERO_VERSION=$(VERSION_STRIPPED) --build-arg N_PROC=$(shell nproc) --platform=linux/arm64 -o type=docker,dest=image.tar .
 
-manifest.yaml: hello-world/Cargo.toml
-		yq e -i '.version = $(VERSION)' manifest.yaml
+manager/target/aarch64-unknown-linux-musl/release/monerod-manager: $(MANAGER_SRC)
+		docker run --rm -it -v ~/.cargo/registry:/root/.cargo/registry -v "$(shell pwd)"/manager:/home/rust/src start9/rust-musl-cross:aarch64-musl cargo build --release
+		docker run --rm -it -v ~/.cargo/registry:/root/.cargo/registry -v "$(shell pwd)"/manager:/home/rust/src start9/rust-musl-cross:aarch64-musl musl-strip target/aarch64-unknown-linux-musl/release/monerod-manager
